@@ -79,6 +79,11 @@ def fetch_poster_by_title(movie_title):
         pass
     return "https://via.placeholder.com/500x750?text=No+Poster"
 
+# Initialize empty tools to prevent NameErrors if try block fails
+df_content = pd.DataFrame(columns=['title', 'movie_id', 'genres', 'year'])
+df_user = pd.DataFrame(columns=['user_id', 'rating', 'movie_id', 'title', 'genres', 'year'])
+df_content_sim = pd.DataFrame()
+
 # --- 3. Local Dataset Setup & Matrix Fitting ---
 try:
     df_content = pd.read_csv('movies_cleaned.csv.csv')
@@ -96,7 +101,7 @@ try:
     similarity_features = cosine_similarity(tfidf_mat)
     df_content_sim = pd.DataFrame(similarity_features, index=df_content['title'].values, columns=df_content['title'].values)
 except Exception as e:
-    st.error(f"Data Connection Error: {e}")
+    st.error(f"Data Connection Error: {e}. Please check file names on GitHub.")
 
 # --- 4. Render Layout Headers ---
 st.markdown('<p class="main-title">🎬 Movie Lounge</p>', unsafe_allow_html=True)
@@ -107,28 +112,33 @@ st.sidebar.markdown("<h3 style='color: #E50914;'>🎛️ Hybrid Tuning</h3>", un
 sample_size = st.sidebar.number_input('Rate items to build anchor profile:', min_value=3, value=3, step=1)
 
 selections = []
-movie_pool = df_content['title'].values.tolist() if 'df_content' in locals() else []
+movie_pool = df_content['title'].values.tolist()
 
 for row_idx in range(sample_size):
-    selected_movie = st.sidebar.selectbox(f"Movie Slot #{row_idx+1}", options=movie_pool, key=f"sel_{row_idx}")
-    selected_rating = st.sidebar.select_slider("Rating Weight:", options=[0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0], value=4.0, key=f"sld_{row_idx}")
-    selections.append((selected_movie, selected_rating))
+    if movie_pool:
+        selected_movie = st.sidebar.selectbox(f"Movie Slot #{row_idx+1}", options=movie_pool, key=f"sel_{row_idx}")
+        selected_rating = st.sidebar.select_slider("Rating Weight:", options=[0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0], value=4.0, key=f"sld_{row_idx}")
+        selections.append((selected_movie, selected_rating))
 
 compute_clicked = st.sidebar.button('🚀 Compute Hybrid Model')
 
 # --- SECTION A: HYBRID USER REQS (Calculated Live on User Profile click) ---
-if compute_clicked:
+if compute_clicked and not df_content_sim.empty:
     with st.spinner('🎯 Constructing user vectors and cross-referencing neighborhoods...'):
         try:
-            next_user_uid = df_user['user_id'].max() + 1
+            next_user_uid = df_user['user_id'].max() + 1 if not df_user.empty else 1
             batch_inputs = []
             for item, score in selections:
+                m_id_vals = df_content.loc[df_content['title'] == item, 'movie_id'].values
+                gen_vals = df_content.loc[df_content['title'] == item, 'genres'].values
+                yr_vals = df_content.loc[df_content['title'] == item, 'year'].values
+                
                 batch_inputs.append({
                     'user_id': next_user_uid, 'rating': score,
-                    'movie_id': df_content.loc[df_content['title'] == item, 'movie_id'].values[0] if 'movie_id' in df_content.columns else 0,
+                    'movie_id': m_id_vals[0] if len(m_id_vals) > 0 else 0,
                     'title': item,
-                    'genres': df_content.loc[df_content['title'] == item, 'genres'].values[0] if 'genres' in df_content.columns else 'General',
-                    'year': df_content.loc[df_content['title'] == item, 'year'].values[0] if 'year' in df_content.columns else 2024
+                    'genres': gen_vals[0] if len(gen_vals) > 0 else 'General',
+                    'year': yr_vals[0] if len(yr_vals) > 0 else 2024
                 })
             
             df_user_extended = pd.concat([df_user, pd.DataFrame(batch_inputs)]).drop_duplicates()
@@ -181,7 +191,7 @@ if compute_clicked:
                 for idx, col in enumerate(h_cols):
                     if idx < len(final_payload):
                         t = final_payload.iloc[idx]['title']
-                        img_src = fetch_poster_url = fetch_poster_by_title(t)
+                        img_src = fetch_poster_by_title(t)
                         with col:
                             st.markdown(f"""
                                 <div class="movie-card">
