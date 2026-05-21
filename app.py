@@ -1,29 +1,52 @@
 import streamlit as st
-import pickle
 import numpy as np
 import pandas as pd
 from scipy import sparse
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 st.set_page_config(page_title="Movie Lounge", layout="wide")
 st.header('🎬 Personalized Movie Recommendations')
 
+# Data imports
 try:
     df_content = pd.read_csv('movies_cleaned.csv.csv')
     df_user = pd.read_csv('ratings_title.csv')
     df_user.rename(columns={'userId':'user_id', 'movieId':'movie_id'}, inplace=True)
     
-    content_similarity = pickle.load(open('movie_similarity_matrix.pkl', 'rb'))
+    # DYNAMIC CALCULATION: Instead of loading a missing .pkl file, we compute it live!
+    st.info("Initializing recommendation matrix from dataset...")
+    
+    # 1. Check if 'tags' or 'genres' column exists to build TF-IDF
+    if 'tags' in df_content.columns:
+        text_column = 'tags'
+    elif 'overview' in df_content.columns:
+        text_column = 'overview'
+    else:
+        # Fallback if specific text features aren't combined yet
+        df_content['fallback_tags'] = df_content['genres'].fillna('') + ' ' + df_content['title'].fillna('')
+        text_column = 'fallback_tags'
+        
+    df_content[text_column] = df_content[text_column].fillna('')
+    
+    # 2. Compute TF-IDF Matrix on the fly
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(df_content[text_column])
+    
+    # 3. Generate Cosine Similarity DataFrame dynamically
+    content_similarity = cosine_similarity(tfidf_matrix)
     df_content_sim = pd.DataFrame(content_similarity, index=df_content['title'].values, columns=df_content['title'].values)
+    st.success("Engine ready!")
+
 except Exception as e:
-    st.error(f"Data loading error: {e}. Please ensure CSV and PKL files are uploaded to GitHub.")
+    st.error(f"Data loading error: {e}. Please ensure CSV files are properly uploaded to GitHub.")
 
 # Get data from the user
 new_user_data = []
 number = st.sidebar.number_input('How many movies would you like to rate?', min_value=3, value=3, step=1)
 
 current_line_number = 0
-options = df_content['title'].values.tolist()
+options = df_content['title'].values.tolist() if 'df_content' in locals() else []
 
 st.sidebar.subheader("Rate Movies to Train the Hybrid Engine:")
 for _ in range(number):
@@ -72,9 +95,9 @@ if st.sidebar.button('Get Recommendations'):
                     
             similar_movies_list = []
             for movie in user_movies:
-                # Replaced .append with pd.concat for modern pandas compatibility
-                series_sim = df_content_sim[movie].drop(user_watched_movies, errors='ignore')
-                similar_movies_list.append(series_sim.to_frame().T)
+                if movie in df_content_sim.index:
+                    series_sim = df_content_sim[movie].drop(user_watched_movies, errors='ignore')
+                    similar_movies_list.append(series_sim.to_frame().T)
             
             if similar_movies_list:
                 similar_movies = pd.concat(similar_movies_list, axis=0)
@@ -118,7 +141,6 @@ if st.sidebar.button('Get Recommendations'):
             content_user_scores['similarity_score'] = (content_user_scores['content_similarity'] + content_user_scores['user_similarity']) / 2
             top_scores = content_user_scores.sort_values(by='similarity_score', ascending=False)[:10]
             
-            # Safe column check to prevent app crashes
             available_cols = ['title', 'genres', 'year']
             for col in ['imdb_rating', 'tmdb_rating', 'vote_average']:
                 if col in df_content.columns:
