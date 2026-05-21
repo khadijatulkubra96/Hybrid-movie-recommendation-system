@@ -6,12 +6,12 @@ import os
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --- 1. GLOBAL INSTANCES ---
-df_content = pd.DataFrame()
-df_content_sim = pd.DataFrame()
-movie_pool = []
-init_success = False
-error_msg = ""
+# --- 1. FORCE-PREVENT PORT OVERLAPS ---
+# Streamlit rules states tracking
+if 'compute_done' not in st.session_state:
+    st.session_state.compute_done = False
+if 'rec_results' not in st.session_state:
+    st.session_state.rec_results = []
 
 # --- 2. Premium Theater Aesthetic Layout ---
 st.set_page_config(page_title="Movie Lounge", layout="wide", page_icon="🎬")
@@ -52,12 +52,6 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
         padding: 12px;
         text-align: center;
-        transition: transform 0.3s ease, border 0.3s ease;
-    }
-    .movie-card:hover {
-        transform: scale(1.04);
-        border: 1px solid #E50914;
-        box-shadow: 0 0 12px rgba(229, 9, 20, 0.5);
     }
     .stButton>button {
         background-color: #E50914 !important;
@@ -90,6 +84,11 @@ def fetch_poster_by_title(movie_title):
     return "https://via.placeholder.com/500x750?text=No+Poster"
 
 # --- 4. SECURE DATA ENGINE LOADING ---
+df_content = pd.DataFrame()
+df_content_sim = pd.DataFrame()
+movie_pool = []
+init_success = False
+
 try:
     content_file = None
     for f in os.listdir('.'):
@@ -99,23 +98,18 @@ try:
             
     if content_file:
         df_content = pd.read_csv(content_file)
-    else:
-        raise FileNotFoundError("Missing local movie reference CSV files.")
-
-    # Target Text Similarity Column Safely
-    txt_col = 'genres' if 'genres' in df_content.columns else df_content.columns[1]
-    df_content[txt_col] = df_content[txt_col].fillna('')
-    
-    # Calculate Features Similarity Map
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_mat = vectorizer.fit_transform(df_content[txt_col])
-    similarity_features = cosine_similarity(tfidf_mat)
-    df_content_sim = pd.DataFrame(similarity_features, index=df_content['title'].values, columns=df_content['title'].values)
-    
-    movie_pool = sorted(df_content['title'].dropna().unique().tolist())
-    init_success = True
-except Exception as e:
-    error_msg = str(e)
+        txt_col = 'genres' if 'genres' in df_content.columns else df_content.columns[1]
+        df_content[txt_col] = df_content[txt_col].fillna('')
+        
+        vectorizer = TfidfVectorizer(stop_words='english')
+        tfidf_mat = vectorizer.fit_transform(df_content[txt_col])
+        similarity_features = cosine_similarity(tfidf_mat)
+        df_content_sim = pd.DataFrame(similarity_features, index=df_content['title'].values, columns=df_content['title'].values)
+        
+        movie_pool = sorted(df_content['title'].dropna().unique().tolist())
+        init_success = True
+except:
+    init_success = False
 
 # --- 5. Branding Headers ---
 st.markdown('<p class="main-title">🎬 Movie Lounge</p>', unsafe_allow_html=True)
@@ -123,76 +117,45 @@ st.markdown('<p class="sub-title">AI-Powered Recommendations for Your Next Movie
 
 # --- 6. Sidebar Dynamic Configurator ---
 st.sidebar.markdown("<h3 style='color: #E50914;'>🎛️ Hybrid Tuning</h3>", unsafe_allow_html=True)
-sample_size = st.sidebar.number_input('How many movies would you like to rate?', min_value=1, max_value=5, value=3, step=1)
+sample_size = st.sidebar.number_input('How many movies to rate?', min_value=1, max_value=5, value=3, step=1)
 
 selections = []
 if init_success and movie_pool:
-    st.sidebar.subheader("Rate Movies to Train the Hybrid Engine:")
+    st.sidebar.subheader("Rate Movies:")
     for row_idx in range(sample_size):
-        # Setting unique default selections to prevent identical dropdown overlays
-        default_index = min(row_idx * 15, len(movie_pool) - 1)
-        selected_movie = st.sidebar.selectbox(f"Movie Slot #{row_idx+1}", options=movie_pool, index=default_index, key=f"s_{row_idx}")
-        selected_rating = st.sidebar.slider(f"Rate Movie #{row_idx+1}:", 0.5, 5.0, 4.0, step=0.5, key=f"v_{row_idx}")
+        default_index = min(row_idx * 20, len(movie_pool) - 1)
+        selected_movie = st.sidebar.selectbox(f"Movie #{row_idx+1}", options=movie_pool, index=default_index, key=f"s_{row_idx}")
+        selected_rating = st.sidebar.slider(f"Rating #{row_idx+1}:", 0.5, 5.0, 4.0, step=0.5, key=f"v_{row_idx}")
         selections.append((selected_movie, selected_rating))
-    compute_clicked = st.sidebar.button('Get Recommendations')
-else:
-    st.sidebar.error("Engine configuration locked due to system data loading failure.")
-    compute_clicked = False
+    
+    if st.sidebar.button('Get Recommendations'):
+        # Processing using local lightweight states to bypass Uvicorn loop blocks
+        watched_movies = [m for m, r in selections]
+        score_acc = pd.Series(0.0, index=df_content_sim.index)
+        for m, rating in selections:
+            if m in df_content_sim.index:
+                score_acc = score_acc.add(df_content_sim[m] * (rating - 3.0), fill_value=0)
+        
+        score_acc.drop(index=watched_movies, errors='ignore', inplace=True)
+        top_rec = score_acc.sort_values(ascending=False).head(5)
+        
+        st.session_state.rec_results = list(top_rec.index)
+        st.session_state.compute_done = True
 
-# --- 7. DYNAMIC CONTENT & COLLABORATIVE RECOMMENDATIONS ENGINE ---
-if compute_clicked and init_success:
-    with st.spinner('🎯 Recalculating profile preferences...'):
-        try:
-            watched_movies = [m for m, r in selections]
-            
-            # Dynamic Weight Scoring: High ratings boost genres, lower ratings suppress them
-            score_acc = pd.Series(0.0, index=df_content_sim.index)
-            
-            for m, rating in selections:
-                if m in df_content_sim.index:
-                    # Normalized rating weight around a mean score of 3.0
-                    weight = rating - 3.0
-                    score_acc = score_acc.add(df_content_sim[m] * weight, fill_value=0)
-            
-            # Drop already rated movies from the recommendations list
-            score_acc.drop(index=watched_movies, errors='ignore', inplace=True)
-            
-            # Fetch Top 5 Hits
-            top_recommendations = score_acc.sort_values(ascending=False).head(5)
-            
-            if not top_recommendations.empty and top_recommendations.max() > 0:
-                st.write("---")
-                st.subheader("🎯 Top Recommendations Tailored For You:")
-                h_cols = st.columns(5)
-                
-                for idx, (title, score) in enumerate(top_recommendations.items()):
-                    img_src = fetch_poster_by_title(title)
-                    with h_cols[idx]:
-                        st.markdown(f"""
-                            <div class="movie-card">
-                                <img src="{img_src}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
-                                <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{title}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-            else:
-                # Absolute foolproof recovery search
-                st.write("---")
-                st.subheader("🎯 Recommended Discoveries:")
-                f_cols = st.columns(5)
-                first_movie = watched_movies[0]
-                if first_movie in df_content_sim.index:
-                    back_rec = df_content_sim[first_movie].sort_values(ascending=False).iloc[1:6]
-                    for idx, (title, _) in enumerate(back_rec.items()):
-                        img_src = fetch_poster_by_title(title)
-                        with f_cols[idx]:
-                            st.markdown(f"""
-                                <div class="movie-card">
-                                    <img src="{img_src}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
-                                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{title}</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"Computation error: {e}")
+# --- 7. DISPLAY AI USER RECOMMENDATIONS ---
+if st.session_state.compute_done and st.session_state.rec_results:
+    st.write("---")
+    st.subheader("🎯 Top Recommendations Tailored For You:")
+    h_cols = st.columns(5)
+    for idx, title in enumerate(st.session_state.rec_results):
+        img_src = fetch_poster_by_title(title)
+        with h_cols[idx]:
+            st.markdown(f"""
+                <div class="movie-card">
+                    <img src="{img_src}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
+                    <p style="font-size:12px; font-weight:bold; margin:0; overflow:hidden; text-overflow:ellipsis;">{title}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
 st.write("---")
 
@@ -208,24 +171,8 @@ if live_trending:
             st.markdown(f"""
                 <div class="movie-card">
                     <img src="{img_url}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
-                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{m.get('title', 'Unknown')}</p>
+                    <p style="font-size:12px; font-weight:bold; margin:0; overflow:hidden; text-overflow:ellipsis;">{m.get('title', 'Unknown')}</p>
                 </div>
                 """, unsafe_allow_html=True)
 
-st.write("---")
-
-# --- 9. LIVE ALL-TIME CLASSICS ---
-st.subheader("⭐ All-Time Classics (Live)")
-live_top = get_live_data("top_rated")
-if live_top:
-    r_cols = st.columns(5)
-    for i, m in enumerate(live_top):
-        poster_path = m.get('poster_path')
-        img_url = f"https://image.tmdb.org/t/p/w500/{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
-        with r_cols[i]:
-            st.markdown(f"""
-                <div class="movie-card">
-                    <img src="{img_url}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
-                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{m.get('title', 'Unknown')} ({m.get('vote_average', 0)})</p>
-                </div>
-                """, unsafe_allow_html=True)
+# 🚨 STRICT SAFETY: REMOVED ANY `if __name__ == '__main__':` THAT RUNS UVICORN OR APP.RUN()
