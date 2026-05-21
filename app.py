@@ -8,9 +8,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 st.set_page_config(page_title="Movie Lounge", layout="wide")
 st.header('🎬 Personalized Movie Recommendations')
 
-# Data imports (Ensure these files are in your GitHub repository)
 try:
-    df_content = pd.read_csv('clean_content.csv')
+    df_content = pd.read_csv('movies_cleaned.csv.csv')
     df_user = pd.read_csv('ratings_title.csv')
     df_user.rename(columns={'userId':'user_id', 'movieId':'movie_id'}, inplace=True)
     
