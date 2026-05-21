@@ -3,10 +3,18 @@ import numpy as np
 import pandas as pd
 import requests
 from scipy import sparse
-from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# --- 1. Premium Custom Layout & Theater Background ---
+# --- 1. GLOBAL VARIABLES INITIALIZATION (Prevents NameError completely) ---
+df_content = pd.DataFrame(columns=['title', 'movie_id', 'genres', 'year'])
+df_user = pd.DataFrame(columns=['user_id', 'rating', 'movie_id', 'title', 'genres', 'year'])
+df_content_sim = pd.DataFrame()
+movie_pool = []
+init_success = False
+error_msg = ""
+
+# --- 2. Premium Custom Layout & Theater Background ---
 st.set_page_config(page_title="Movie Lounge", layout="wide", page_icon="🎬")
 
 st.markdown("""
@@ -54,7 +62,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Live API Functions ---
+# --- 3. Live API Functions ---
 def get_live_data(endpoint_type="trending"):
     if endpoint_type == "trending":
         url = "https://api.themoviedb.org/3/trending/movie/day?api_key=8265bd1679663a7ea12ac168da84d2e8"
@@ -79,12 +87,7 @@ def fetch_poster_by_title(movie_title):
         pass
     return "https://via.placeholder.com/500x750?text=No+Poster"
 
-# Initialize empty tools to prevent NameErrors if try block fails
-df_content = pd.DataFrame(columns=['title', 'movie_id', 'genres', 'year'])
-df_user = pd.DataFrame(columns=['user_id', 'rating', 'movie_id', 'title', 'genres', 'year'])
-df_content_sim = pd.DataFrame()
-
-# --- 3. Local Dataset Setup & Matrix Fitting ---
+# --- 4. Safe Local Data Loading Block ---
 try:
     df_content = pd.read_csv('movies_cleaned.csv.csv')
     df_user = pd.read_csv('ratings_title.csv')
@@ -100,30 +103,38 @@ try:
     tfidf_mat = vectorizer.fit_transform(df_content[txt_col])
     similarity_features = cosine_similarity(tfidf_mat)
     df_content_sim = pd.DataFrame(similarity_features, index=df_content['title'].values, columns=df_content['title'].values)
+    
+    movie_pool = df_content['title'].values.tolist()
+    init_success = True
 except Exception as e:
-    st.error(f"Data Connection Error: {e}. Please check file names on GitHub.")
+    error_msg = str(e)
 
-# --- 4. Render Layout Headers ---
+# --- 5. Render App UI Layout ---
 st.markdown('<p class="main-title">🎬 Movie Lounge</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">AI-Powered Recommendations for Your Next Movie Night</p>', unsafe_allow_html=True)
 
-# --- 5. Sidebar Controls (Hybrid Matrix Tuning) ---
+# Show error on main dashboard visually if data files failed to load
+if not init_success:
+    st.error(f"⚠️ Data Loading Alert: {error_msg}")
+    st.info("System is currently running on Live Global API mode because local CSV tracking failed.")
+
+# --- 6. Sidebar Tuning Controls ---
 st.sidebar.markdown("<h3 style='color: #E50914;'>🎛️ Hybrid Tuning</h3>", unsafe_allow_html=True)
 sample_size = st.sidebar.number_input('Rate items to build anchor profile:', min_value=3, value=3, step=1)
 
 selections = []
-movie_pool = df_content['title'].values.tolist()
-
 for row_idx in range(sample_size):
-    if movie_pool:
+    if init_success and movie_pool:
         selected_movie = st.sidebar.selectbox(f"Movie Slot #{row_idx+1}", options=movie_pool, key=f"sel_{row_idx}")
         selected_rating = st.sidebar.select_slider("Rating Weight:", options=[0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0], value=4.0, key=f"sld_{row_idx}")
         selections.append((selected_movie, selected_rating))
+    else:
+        st.sidebar.warning(f"Slot #{row_idx+1} locked (Waiting for CSV data)")
 
-compute_clicked = st.sidebar.button('🚀 Compute Hybrid Model')
+compute_clicked = st.sidebar.button('🚀 Compute Hybrid Model') if init_success else False
 
-# --- SECTION A: HYBRID USER REQS (Calculated Live on User Profile click) ---
-if compute_clicked and not df_content_sim.empty:
+# --- SECTION A: LIVE ENGINE PREDICTIONS ---
+if compute_clicked and init_success and not df_content_sim.empty:
     with st.spinner('🎯 Constructing user vectors and cross-referencing neighborhoods...'):
         try:
             next_user_uid = df_user['user_id'].max() + 1 if not df_user.empty else 1
@@ -206,7 +217,7 @@ if compute_clicked and not df_content_sim.empty:
 
 st.write("---")
 
-# --- SECTION B: LIVE GLOBAL TRENDING (Loaded via direct TMDB API calls) ---
+# --- SECTION B: LIVE GLOBAL TRENDING (TMDB API) ---
 st.subheader("🔥 Trending Globally Today")
 live_trending = get_live_data("trending")
 if live_trending:
