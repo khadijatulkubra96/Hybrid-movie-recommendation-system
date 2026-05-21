@@ -4,7 +4,7 @@ import requests
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --- 1. Premium Custom Layout & Theater Background ---
+# --- 1. Premium Netflix Design Styling ---
 st.set_page_config(page_title="Movie Lounge", layout="wide", page_icon="🎬")
 
 st.markdown("""
@@ -46,7 +46,6 @@ st.markdown("""
         border: 1px solid #E50914;
         box-shadow: 0 0 15px rgba(229, 9, 20, 0.4);
     }
-    /* Button Custom styling */
     .stButton>button {
         background-color: #E50914 !important;
         color: white !important;
@@ -59,19 +58,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Live API Functions ---
-def get_live_data(type="trending"):
-    if type == "trending":
-        url = "https://api.themoviedb.org/3/trending/movie/day?api_key=8265bd1679663a7ea12ac168da84d2e8"
-    else:
-        url = "https://api.themoviedb.org/3/movie/top_rated?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US&page=1"
-        
-    try:
-        response = requests.get(url, timeout=3).json()
-        return response.get('results', [])[:5] 
-    except:
-        return []
-
+# --- 2. TMDB Poster Fetcher Engine ---
 def fetch_poster(movie_id):
     url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US"
     try:
@@ -82,34 +69,44 @@ def fetch_poster(movie_id):
         pass
     return "https://via.placeholder.com/500x750?text=No+Poster"
 
-# --- 3. Data Loading & TF-IDF Caching ---
+# --- 3. Live Dashboard Sections ---
+def get_live_data(type="trending"):
+    if type == "trending":
+        url = "https://api.themoviedb.org/3/trending/movie/day?api_key=8265bd1679663a7ea12ac168da84d2e8"
+    else:
+        url = "https://api.themoviedb.org/3/movie/top_rated?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US&page=1"
+    try:
+        response = requests.get(url, timeout=3).json()
+        return response.get('results', [])[:5] 
+    except:
+        return []
+
+# --- 4. Secure Dataset Loading (Using your movie_list.pkl) ---
 @st.cache_resource
 def load_data():
     try:
         movies = pickle.load(open('movie_list.pkl', 'rb'))
-        
         if 'tags' not in movies.columns:
             movies['tags'] = movies['overview'].fillna('') + " " + movies['genres'].fillna('')
-            
+        
         tfidf = TfidfVectorizer(stop_words='english')
         tfidf_matrix = tfidf.fit_transform(movies['tags'].fillna(''))
         sim = cosine_similarity(tfidf_matrix)
         return movies, sim, True, ""
     except Exception as e:
-        # Fallback empty structures if pkl is missing or corrupt during runtime
         empty_df = pd.DataFrame(columns=['title', 'id', 'tags'])
         return empty_df, None, False, str(e)
 
 movies, similarity, data_loaded, load_error = load_data()
 
-# --- 4. Header Section ---
+# --- 5. Branding Display ---
 st.markdown('<p class="main-title">🎬 Movie Lounge</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">AI-Powered Recommendations for Your Next Movie Night</p>', unsafe_allow_html=True)
 
 if not data_loaded:
-    st.error(f"⚠️ Dataset Load Fail: {load_error}. Please ensure 'movie_list.pkl' is uploaded to GitHub.")
+    st.error(f"⚠️ Dataset Alert: {load_error}")
 
-# --- 5. SEARCH & RECOMMEND SECTION ---
+# --- 6. Content Recommendation Engine Grid ---
 if data_loaded and not movies.empty:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -127,30 +124,28 @@ if data_loaded and not movies.empty:
                 for i in range(1, 6):
                     if i < len(distances):
                         movie_idx = distances[i][0]
-                        movie_id = movies.iloc[movie_idx].id
-                        movie_title = movies.iloc[movie_idx].title
-                        poster_url = fetch_poster(movie_id)
+                        m_id = movies.iloc[movie_idx].id
+                        m_title = movies.iloc[movie_idx].title
+                        poster_url = fetch_poster(m_id)
                         
                         with cols[i-1]:
                             st.markdown(f"""
                                 <div class="movie-card">
                                     <img src="{poster_url}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
-                                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{movie_title}</p>
+                                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{m_title}</p>
                                 </div>
                                 """, unsafe_allow_html=True)
 
 st.write("---")
 
-# --- 6. LIVE DYNAMIC SECTIONS (TMDB API Based) ---
-
-# Live Trending Section
+# --- 7. Live Dynamic Trending Layout ---
 st.subheader("🔥 Trending Globally Today")
 live_trending = get_live_data("trending")
 if live_trending:
     t_cols = st.columns(5)
     for i, m in enumerate(live_trending):
-        poster_path = m.get('poster_path')
-        img_url = f"https://image.tmdb.org/t/p/w500/{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
+        p_path = m.get('poster_path')
+        img_url = f"https://image.tmdb.org/t/p/w500/{p_path}" if p_path else "https://via.placeholder.com/500x750?text=No+Poster"
         with t_cols[i]:
             st.markdown(f"""
                 <div class="movie-card">
@@ -161,14 +156,14 @@ if live_trending:
 
 st.write("---")
 
-# Live Top Rated Section
+# --- 8. Live All-Time Classics Layout ---
 st.subheader("⭐ All-Time Classics (Live)")
 live_top = get_live_data("top_rated")
 if live_top:
     r_cols = st.columns(5)
     for i, m in enumerate(live_top):
-        poster_path = m.get('poster_path')
-        img_url = f"https://image.tmdb.org/t/p/w500/{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
+        p_path = m.get('poster_path')
+        img_url = f"https://image.tmdb.org/t/p/w500/{p_path}" if p_path else "https://via.placeholder.com/500x750?text=No+Poster"
         with r_cols[i]:
             st.markdown(f"""
                 <div class="movie-card">
