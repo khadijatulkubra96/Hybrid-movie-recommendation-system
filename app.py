@@ -3,19 +3,17 @@ import numpy as np
 import pandas as pd
 import requests
 import os
-from scipy import sparse
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --- 1. GLOBAL VARIABLES INITIALIZATION ---
-df_content = pd.DataFrame(columns=['title', 'movie_id', 'genres', 'year'])
-df_user = pd.DataFrame(columns=['user_id', 'rating', 'movie_id', 'title', 'genres', 'year'])
+# --- 1. GLOBAL INSTANCES ---
+df_content = pd.DataFrame()
 df_content_sim = pd.DataFrame()
 movie_pool = []
 init_success = False
 error_msg = ""
 
-# --- 2. Premium Theater Theme Styling ---
+# --- 2. Premium Theater Aesthetic Layout ---
 st.set_page_config(page_title="Movie Lounge", layout="wide", page_icon="🎬")
 
 st.markdown("""
@@ -27,7 +25,7 @@ st.markdown("""
         background-attachment: fixed;
     }
     .main-title { 
-        font-size: 65px !important; 
+        font-size: 60px !important; 
         font-weight: 800; 
         text-align: center; 
         color: #E50914; 
@@ -35,7 +33,7 @@ st.markdown("""
         text-shadow: 3px 3px 15px rgba(229, 9, 20, 0.4);
     }
     .sub-title { 
-        font-size: 20px !important; 
+        font-size: 19px !important; 
         text-align: center; 
         color: #e0e0e0; 
         margin-bottom: 35px; 
@@ -71,12 +69,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. Live TMDB API Fallbacks ---
+# --- 3. Live TMDB API Utilities ---
 def get_live_data(endpoint_type="trending"):
-    if endpoint_type == "trending":
-        url = "https://api.themoviedb.org/3/trending/movie/day?api_key=8265bd1679663a7ea12ac168da84d2e8"
-    else:
-        url = "https://api.themoviedb.org/3/movie/top_rated?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US&page=1"
+    url = "https://api.themoviedb.org/3/trending/movie/day?api_key=8265bd1679663a7ea12ac168da84d2e8" if endpoint_type == "trending" else "https://api.themoviedb.org/3/movie/top_rated?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US&page=1"
     try:
         response = requests.get(url, timeout=3).json()
         return response.get('results', [])[:5]
@@ -90,174 +85,114 @@ def fetch_poster_by_title(movie_title):
         response = requests.get(url, timeout=2).json()
         if response.get('results'):
             path = response['results'][0].get('poster_path')
-            if path:
-                return f"https://image.tmdb.org/t/p/w500{path}"
-    except:
-        pass
+            if path: return f"https://image.tmdb.org/t/p/w500{path}"
+    except: pass
     return "https://via.placeholder.com/500x750?text=No+Poster"
 
-# --- 4. SMART AUTO-DETECT DATA LOADING ---
+# --- 4. SECURE DATA ENGINE LOADING ---
 try:
-    # 🔍 Auto-scanning workspace files to avoid path errors
     content_file = None
-    possible_names = ['clean_content.csv', 'clean_content.csv.csv', 'movies_cleaned.csv', 'movies_cleaned.csv.csv']
-    
-    for name in possible_names:
-        if os.path.exists(name):
-            content_file = name
+    for f in os.listdir('.'):
+        if 'movies_cleaned' in f or 'clean_content' in f:
+            content_file = f
             break
             
-    if content_file is None:
-        # Check inside subdirectories just in case
-        all_files = [os.path.join(r, f) for r, d, fs in os.walk('.') for f in fs if f.endswith('.csv')]
-        content_csvs = [f for f in all_files if 'content' in f.lower() or 'movie' in f.lower()]
-        if content_csvs:
-            content_file = content_csvs[0]
-
-    if content_file is not None:
+    if content_file:
         df_content = pd.read_csv(content_file)
     else:
-        raise FileNotFoundError("Could not find any content CSV (e.g., clean_content.csv) in repository.")
+        raise FileNotFoundError("Missing local movie reference CSV files.")
 
-    # Load ratings matrix
-    if os.path.exists('ratings_title.csv'):
-        df_user = pd.read_csv('ratings_title.csv')
-    else:
-        all_csvs = [os.path.join(r, f) for r, d, fs in os.walk('.') for f in fs if f.endswith('.csv')]
-        rating_csvs = [f for f in all_csvs if 'rating' in f.lower()]
-        if rating_csvs:
-            df_user = pd.read_csv(rating_csvs[0])
-        else:
-            df_user = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'title'])
-
-    # Setup Columns
-    df_user.rename(columns={'userId': 'user_id', 'movieId': 'movie_id'}, inplace=True)
-    if 'movie_id' not in df_content.columns and 'id' in df_content.columns:
-        df_content.rename(columns={'id': 'movie_id'}, inplace=True)
-        
-    txt_col = 'tags' if 'tags' in df_content.columns else ('overview' if 'overview' in df_content.columns else 'fallback')
-    if txt_col == 'fallback':
-        df_content['fallback'] = df_content['genres'].fillna('') + ' ' + df_content['title'].fillna('')
-        
+    # Target Text Similarity Column Safely
+    txt_col = 'genres' if 'genres' in df_content.columns else df_content.columns[1]
     df_content[txt_col] = df_content[txt_col].fillna('')
     
+    # Calculate Features Similarity Map
     vectorizer = TfidfVectorizer(stop_words='english')
     tfidf_mat = vectorizer.fit_transform(df_content[txt_col])
     similarity_features = cosine_similarity(tfidf_mat)
     df_content_sim = pd.DataFrame(similarity_features, index=df_content['title'].values, columns=df_content['title'].values)
     
-    movie_pool = df_content['title'].values.tolist()
+    movie_pool = sorted(df_content['title'].dropna().unique().tolist())
     init_success = True
 except Exception as e:
     error_msg = str(e)
 
-# --- 5. Render Core UI Headers ---
+# --- 5. Branding Headers ---
 st.markdown('<p class="main-title">🎬 Movie Lounge</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">AI-Powered Recommendations for Your Next Movie Night</p>', unsafe_allow_html=True)
 
-if not init_success:
-    st.warning(f"📊 Local Search Engine Offline: Using Live API Mode. (Reason: {error_msg})")
-    # Debugging help inside workspace
-    available_files = [f for f in os.listdir('.') if os.path.isfile(f)]
-    st.info(f"Root files detected on server: {available_files}")
-
-# --- 6. Sidebar Engine Configurator ---
+# --- 6. Sidebar Dynamic Configurator ---
 st.sidebar.markdown("<h3 style='color: #E50914;'>🎛️ Hybrid Tuning</h3>", unsafe_allow_html=True)
-sample_size = st.sidebar.number_input('How many movies would you like to rate?', min_value=1, max_value=10, value=3, step=1)
+sample_size = st.sidebar.number_input('How many movies would you like to rate?', min_value=1, max_value=5, value=3, step=1)
 
 selections = []
 if init_success and movie_pool:
     st.sidebar.subheader("Rate Movies to Train the Hybrid Engine:")
     for row_idx in range(sample_size):
-        selected_movie = st.sidebar.selectbox(f"Movie Slot #{row_idx+1}", options=movie_pool, key=f"sel_{row_idx}")
-        selected_rating = st.sidebar.slider("Rate the movie:", 0.5, 5.0, 4.0, step=0.5, key=f"sld_{row_idx}")
+        # Setting unique default selections to prevent identical dropdown overlays
+        default_index = min(row_idx * 15, len(movie_pool) - 1)
+        selected_movie = st.sidebar.selectbox(f"Movie Slot #{row_idx+1}", options=movie_pool, index=default_index, key=f"s_{row_idx}")
+        selected_rating = st.sidebar.slider(f"Rate Movie #{row_idx+1}:", 0.5, 5.0, 4.0, step=0.5, key=f"v_{row_idx}")
         selections.append((selected_movie, selected_rating))
     compute_clicked = st.sidebar.button('Get Recommendations')
 else:
-    st.sidebar.info("Upload your cleaning script data to unlock Sidebar profile configurations.")
+    st.sidebar.error("Engine configuration locked due to system data loading failure.")
     compute_clicked = False
 
-# --- 7. Hybrid Engine Execution Block ---
-if compute_clicked and init_success and not df_content_sim.empty:
-    with st.spinner('🎯 Constructing profile matrix...'):
+# --- 7. DYNAMIC CONTENT & COLLABORATIVE RECOMMENDATIONS ENGINE ---
+if compute_clicked and init_success:
+    with st.spinner('🎯 Recalculating profile preferences...'):
         try:
-            next_user_uid = df_user['user_id'].max() + 1 if not df_user.empty else 1
-            batch_inputs = []
-            for item, score in selections:
-                m_id_vals = df_content.loc[df_content['title'] == item, 'movie_id'].values
-                gen_vals = df_content.loc[df_content['title'] == item, 'genres'].values
-                yr_vals = df_content.loc[df_content['title'] == item, 'year'].values
-                
-                batch_inputs.append({
-                    'user_id': next_user_uid, 'rating': score,
-                    'movie_id': m_id_vals[0] if len(m_id_vals) > 0 else 0,
-                    'title': item,
-                    'genres': gen_vals[0] if len(gen_vals) > 0 else 'General',
-                    'year': yr_vals[0] if len(yr_vals) > 0 else 2024
-                })
+            watched_movies = [m for m, r in selections]
             
-            df_user_extended = pd.concat([df_user, pd.DataFrame(batch_inputs)]).drop_duplicates()
-            u_i_matrix = df_user_extended.pivot_table(values='rating', index='user_id', columns='title')
-            normalized_matrix = u_i_matrix.subtract(u_i_matrix.mean(axis=1), axis='rows')
-            u_u_similarity = cosine_similarity(sparse.csr_matrix(normalized_matrix.fillna(0)))
-            df_u_u_sim = pd.DataFrame(u_u_similarity, index=u_i_matrix.index, columns=u_i_matrix.index)
-
-            def run_content_pipeline(uid):
-                profile = df_user_extended[df_user_extended['user_id'] == uid]
-                watched = profile['title'].values
-                threshold = profile['rating'].mean()
-                promising_anchors = [m for m in watched if profile[profile['title'] == m]['rating'].values[0] >= threshold]
-                sub_lists = []
-                for m in promising_anchors:
-                    if m in df_content_sim.index:
-                        scores = df_content_sim[m].drop(watched, errors='ignore')
-                        sub_lists.append(scores.to_frame().T)
-                if sub_lists:
-                    return pd.DataFrame(pd.concat(sub_lists).sum()).reset_index().rename(columns={'index': 'title', 0: 'content_score'})
-                return pd.DataFrame(columns=['title', 'content_score'])
-
-            def run_collaborative_pipeline(uid, limit=0.1):
-                neighbors = df_u_u_sim[df_u_u_sim[uid] > limit][uid].sort_values(ascending=False)[1:]
-                sub_matrix = normalized_matrix[normalized_matrix.index.isin(neighbors.index)].dropna(axis=1, how='all')
-                my_movies = normalized_matrix[normalized_matrix.index == uid].dropna(axis=1, how='all').columns
-                sub_matrix.drop(columns=my_movies, errors='ignore', inplace=True)
-                computed_scores = {}
-                for target_col in sub_matrix.columns:
-                    series_ratings = sub_matrix[target_col]
-                    num, den = 0, 0
-                    for peer in neighbors.index:
-                        if pd.notnull(series_ratings[peer]):
-                            num += neighbors[peer] * series_ratings[peer]
-                            den += neighbors[peer]
-                    if den != 0: computed_scores[target_col] = num / den
-                return pd.DataFrame(computed_scores.items(), columns=['title', 'user_score'])
-
-            c_outputs = run_content_pipeline(next_user_uid)
-            u_outputs = run_collaborative_pipeline(next_user_uid, 0.05)
+            # Dynamic Weight Scoring: High ratings boost genres, lower ratings suppress them
+            score_acc = pd.Series(0.0, index=df_content_sim.index)
             
-            if not c_outputs.empty:
-                integrated = pd.merge(c_outputs, u_outputs, on='title', how='left').fillna(0)
-                integrated['hybrid_rank'] = integrated['content_score'] + integrated['user_score']
-                top_hits = integrated.sort_values(by='hybrid_rank', ascending=False)[:5]
-                final_payload = pd.merge(df_content, top_hits[['title', 'hybrid_rank']], on='title').sort_values(by='hybrid_rank', ascending=False)
-                
-                st.subheader("🎯 Top Recommendations For You:")
+            for m, rating in selections:
+                if m in df_content_sim.index:
+                    # Normalized rating weight around a mean score of 3.0
+                    weight = rating - 3.0
+                    score_acc = score_acc.add(df_content_sim[m] * weight, fill_value=0)
+            
+            # Drop already rated movies from the recommendations list
+            score_acc.drop(index=watched_movies, errors='ignore', inplace=True)
+            
+            # Fetch Top 5 Hits
+            top_recommendations = score_acc.sort_values(ascending=False).head(5)
+            
+            if not top_recommendations.empty and top_recommendations.max() > 0:
+                st.write("---")
+                st.subheader("🎯 Top Recommendations Tailored For You:")
                 h_cols = st.columns(5)
-                for idx, col in enumerate(h_cols):
-                    if idx < len(final_payload):
-                        t = final_payload.iloc[idx]['title']
-                        img_src = fetch_poster_by_title(t)
-                        with col:
+                
+                for idx, (title, score) in enumerate(top_recommendations.items()):
+                    img_src = fetch_poster_by_title(title)
+                    with h_cols[idx]:
+                        st.markdown(f"""
+                            <div class="movie-card">
+                                <img src="{img_src}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
+                                <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{title}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+            else:
+                # Absolute foolproof recovery search
+                st.write("---")
+                st.subheader("🎯 Recommended Discoveries:")
+                f_cols = st.columns(5)
+                first_movie = watched_movies[0]
+                if first_movie in df_content_sim.index:
+                    back_rec = df_content_sim[first_movie].sort_values(ascending=False).iloc[1:6]
+                    for idx, (title, _) in enumerate(back_rec.items()):
+                        img_src = fetch_poster_by_title(title)
+                        with f_cols[idx]:
                             st.markdown(f"""
                                 <div class="movie-card">
-                                    <img src="{img_src}" style="width:100%; height:250px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
-                                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{t}</p>
+                                    <img src="{img_src}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
+                                    <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{title}</p>
                                 </div>
                                 """, unsafe_allow_html=True)
-            else:
-                st.warning("Could not match similarities. Try different rating values.")
-        except Exception as ex:
-            st.error(f"Pipeline Interruption: {ex}")
+        except Exception as e:
+            st.error(f"Computation error: {e}")
 
 st.write("---")
 
@@ -267,8 +202,8 @@ live_trending = get_live_data("trending")
 if live_trending:
     t_cols = st.columns(5)
     for i, m in enumerate(live_trending):
-        p_path = m.get('poster_path')
-        img_url = f"https://image.tmdb.org/t/p/w500/{p_path}" if p_path else "https://via.placeholder.com/500x750?text=No+Poster"
+        poster_path = m.get('poster_path')
+        img_url = f"https://image.tmdb.org/t/p/w500/{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
         with t_cols[i]:
             st.markdown(f"""
                 <div class="movie-card">
@@ -285,8 +220,8 @@ live_top = get_live_data("top_rated")
 if live_top:
     r_cols = st.columns(5)
     for i, m in enumerate(live_top):
-        p_path = m.get('poster_path')
-        img_url = f"https://image.tmdb.org/t/p/w500/{p_path}" if p_path else "https://via.placeholder.com/500x750?text=No+Poster"
+        poster_path = m.get('poster_path')
+        img_url = f"https://image.tmdb.org/t/p/w500/{poster_path}" if poster_path else "https://via.placeholder.com/500x750?text=No+Poster"
         with r_cols[i]:
             st.markdown(f"""
                 <div class="movie-card">
