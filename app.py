@@ -64,25 +64,26 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 3. Live TMDB API Utilities ---
+import random
+
 def get_live_data(endpoint_type="trending"):
-    url = "https://api.themoviedb.org/3/trending/movie/day?api_key=8265bd1679663a7ea12ac168da84d2e8" if endpoint_type == "trending" else "https://api.themoviedb.org/3/movie/top_rated?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US&page=1"
+    # Har baar random page (1 se 5 tak) select karega taake movies badalti rahein
+    random_page = random.randint(1, 5)
+    
+    if endpoint_type == "trending":
+        # Trending ke liye weekly aur daily mix kar sakte hain ya page badal sakte hain
+        url = f"https://api.themoviedb.org/3/trending/movie/week?api_key=8265bd1679663a7ea12ac168da84d2e8&page={random_page}"
+    else:
+        url = f"https://api.themoviedb.org/3/movie/top_rated?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US&page={random_page}"
+        
     try:
         response = requests.get(url, timeout=3).json()
-        return response.get('results', [])[:5]
+        results = response.get('results', [])
+        # Results ko bhi shuffle (aage peeche) kar dete hain extra randomness ke liye
+        random.shuffle(results)
+        return results[:5]
     except:
         return []
-
-def fetch_poster_by_title(movie_title):
-    try:
-        clean_title = movie_title.split('(')[0].strip()
-        url = f"https://api.themoviedb.org/3/search/movie?api_key=8265bd1679663a7ea12ac168da84d2e8&query={clean_title}"
-        response = requests.get(url, timeout=2).json()
-        if response.get('results'):
-            path = response['results'][0].get('poster_path')
-            if path: return f"https://image.tmdb.org/t/p/w500{path}"
-    except: pass
-    return "https://via.placeholder.com/500x750?text=No+Poster"
-
 # --- 4. SECURE DATA ENGINE LOADING ---
 df_content = pd.DataFrame()
 df_content_sim = pd.DataFrame()
