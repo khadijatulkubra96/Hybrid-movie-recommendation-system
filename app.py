@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import requests
+import os
 from scipy import sparse
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -95,12 +96,41 @@ def fetch_poster_by_title(movie_title):
         pass
     return "https://via.placeholder.com/500x750?text=No+Poster"
 
-# --- 4. Matching Dataset Names from your GitHub ---
+# --- 4. SMART AUTO-DETECT DATA LOADING ---
 try:
-    df_content = pd.read_csv('clean_content.csv')
-    df_user = pd.read_csv('ratings_title.csv')
+    # 🔍 Auto-scanning workspace files to avoid path errors
+    content_file = None
+    possible_names = ['clean_content.csv', 'clean_content.csv.csv', 'movies_cleaned.csv', 'movies_cleaned.csv.csv']
     
-    # Mapping columns if needed
+    for name in possible_names:
+        if os.path.exists(name):
+            content_file = name
+            break
+            
+    if content_file is None:
+        # Check inside subdirectories just in case
+        all_files = [os.path.join(r, f) for r, d, fs in os.walk('.') for f in fs if f.endswith('.csv')]
+        content_csvs = [f for f in all_files if 'content' in f.lower() or 'movie' in f.lower()]
+        if content_csvs:
+            content_file = content_csvs[0]
+
+    if content_file is not None:
+        df_content = pd.read_csv(content_file)
+    else:
+        raise FileNotFoundError("Could not find any content CSV (e.g., clean_content.csv) in repository.")
+
+    # Load ratings matrix
+    if os.path.exists('ratings_title.csv'):
+        df_user = pd.read_csv('ratings_title.csv')
+    else:
+        all_csvs = [os.path.join(r, f) for r, d, fs in os.walk('.') for f in fs if f.endswith('.csv')]
+        rating_csvs = [f for f in all_csvs if 'rating' in f.lower()]
+        if rating_csvs:
+            df_user = pd.read_csv(rating_csvs[0])
+        else:
+            df_user = pd.DataFrame(columns=['userId', 'movieId', 'rating', 'title'])
+
+    # Setup Columns
     df_user.rename(columns={'userId': 'user_id', 'movieId': 'movie_id'}, inplace=True)
     if 'movie_id' not in df_content.columns and 'id' in df_content.columns:
         df_content.rename(columns={'id': 'movie_id'}, inplace=True)
@@ -127,6 +157,9 @@ st.markdown('<p class="sub-title">AI-Powered Recommendations for Your Next Movie
 
 if not init_success:
     st.warning(f"📊 Local Search Engine Offline: Using Live API Mode. (Reason: {error_msg})")
+    # Debugging help inside workspace
+    available_files = [f for f in os.listdir('.') if os.path.isfile(f)]
+    st.info(f"Root files detected on server: {available_files}")
 
 # --- 6. Sidebar Engine Configurator ---
 st.sidebar.markdown("<h3 style='color: #E50914;'>🎛️ Hybrid Tuning</h3>", unsafe_allow_html=True)
@@ -141,7 +174,7 @@ if init_success and movie_pool:
         selections.append((selected_movie, selected_rating))
     compute_clicked = st.sidebar.button('Get Recommendations')
 else:
-    st.sidebar.info("Upload 'clean_content.csv' to unlock Sidebar controls.")
+    st.sidebar.info("Upload your cleaning script data to unlock Sidebar profile configurations.")
     compute_clicked = False
 
 # --- 7. Hybrid Engine Execution Block ---
@@ -239,7 +272,7 @@ if live_trending:
         with t_cols[i]:
             st.markdown(f"""
                 <div class="movie-card">
-                    <img src="{img_url}" style="width:100%; height:250px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
+                    <img src="{img_url}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
                     <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{m.get('title', 'Unknown')}</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -257,7 +290,7 @@ if live_top:
         with r_cols[i]:
             st.markdown(f"""
                 <div class="movie-card">
-                    <img src="{img_url}" style="width:100%; height:250px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
+                    <img src="{img_url}" style="width:100%; height:240px; object-fit:cover; border-radius:6px; margin-bottom:8px;">
                     <p style="font-size:13px; font-weight:bold; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{m.get('title', 'Unknown')} ({m.get('vote_average', 0)})</p>
                 </div>
                 """, unsafe_allow_html=True)
